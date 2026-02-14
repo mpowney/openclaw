@@ -6,10 +6,6 @@ import {
 } from "../providers/github-copilot-token.js";
 import { ensureAuthProfileStore, listProfilesForProvider } from "./auth-profiles.js";
 import { discoverBedrockModels } from "./bedrock-discovery.js";
-import {
-  buildCloudflareAiGatewayModelDefinition,
-  resolveCloudflareAiGatewayBaseUrl,
-} from "./cloudflare-ai-gateway.js";
 import { resolveAwsSdkEnvVarName, resolveEnvApiKey } from "./model-auth.js";
 import {
   buildSyntheticModelDefinition,
@@ -80,17 +76,6 @@ const OLLAMA_DEFAULT_COST = {
   cacheWrite: 0,
 };
 
-export const QIANFAN_BASE_URL = "https://qianfan.baidubce.com/v2";
-export const QIANFAN_DEFAULT_MODEL_ID = "deepseek-v3.2";
-const QIANFAN_DEFAULT_CONTEXT_WINDOW = 98304;
-const QIANFAN_DEFAULT_MAX_TOKENS = 32768;
-const QIANFAN_DEFAULT_COST = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-};
-
 interface OllamaModel {
   name: string;
   modified_at: string;
@@ -136,11 +121,6 @@ async function discoverOllamaModels(): Promise<ModelDefinitionConfig[]> {
         cost: OLLAMA_DEFAULT_COST,
         contextWindow: OLLAMA_DEFAULT_CONTEXT_WINDOW,
         maxTokens: OLLAMA_DEFAULT_MAX_TOKENS,
-        // Disable streaming by default for Ollama to avoid SDK issue #1205
-        // See: https://github.com/badlogic/pi-mono/issues/1205
-        params: {
-          streaming: false,
-        },
       };
     });
   } catch (error) {
@@ -414,30 +394,230 @@ async function buildOllamaProvider(): Promise<ProviderConfig> {
   };
 }
 
-export function buildQianfanProvider(): ProviderConfig {
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Azure AI Foundry
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const AZURE_FOUNDRY_DEFAULT_COST = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+};
+
+// Static catalog of models commonly available on Azure AI Foundry.
+// Users with custom deployment names should use explicit models.providers config.
+const AZURE_FOUNDRY_OPENAI_CATALOG: ModelDefinitionConfig[] = [
+  {
+    id: "gpt-5.2",
+    name: "GPT 5.2",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 200000,
+    maxTokens: 16384,
+  },
+  {
+    id: "gpt-5.1",
+    name: "GPT 5.1",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 200000,
+    maxTokens: 16384,
+  },
+  {
+    id: "gpt-5",
+    name: "GPT 5",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 200000,
+    maxTokens: 16384,
+  },
+  {
+    id: "gpt-5-mini",
+    name: "GPT 5 Mini",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 128000,
+    maxTokens: 16384,
+  },
+  {
+    id: "gpt-5-nano",
+    name: "GPT 5 Nano",
+    reasoning: false,
+    input: ["text"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 128000,
+    maxTokens: 8192,
+  },
+  {
+    id: "gpt-4.1",
+    name: "GPT 4.1",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 1047576,
+    maxTokens: 32768,
+  },
+  {
+    id: "gpt-4.1-mini",
+    name: "GPT 4.1 Mini",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 1047576,
+    maxTokens: 32768,
+  },
+  {
+    id: "gpt-4.1-nano",
+    name: "GPT 4.1 Nano",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 1047576,
+    maxTokens: 32768,
+  },
+  {
+    id: "gpt-4o",
+    name: "GPT 4o",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 128000,
+    maxTokens: 16384,
+  },
+  {
+    id: "gpt-4o-mini",
+    name: "GPT 4o Mini",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 128000,
+    maxTokens: 16384,
+  },
+  {
+    id: "o3",
+    name: "o3",
+    reasoning: true,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 200000,
+    maxTokens: 100000,
+  },
+  {
+    id: "o3-mini",
+    name: "o3 Mini",
+    reasoning: true,
+    input: ["text"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 200000,
+    maxTokens: 100000,
+  },
+  {
+    id: "o4-mini",
+    name: "o4 Mini",
+    reasoning: true,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 200000,
+    maxTokens: 100000,
+  },
+];
+
+const AZURE_FOUNDRY_ANTHROPIC_CATALOG: ModelDefinitionConfig[] = [
+  {
+    id: "claude-opus-4-5-20251101",
+    name: "Claude Opus 4.5",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 200000,
+    maxTokens: 8192,
+  },
+  {
+    id: "claude-sonnet-4-5-20250929",
+    name: "Claude Sonnet 4.5",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 200000,
+    maxTokens: 8192,
+  },
+  {
+    id: "claude-haiku-4-5-20251001",
+    name: "Claude Haiku 4.5",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 200000,
+    maxTokens: 8192,
+  },
+  {
+    id: "claude-sonnet-4-20250514",
+    name: "Claude Sonnet 4",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 200000,
+    maxTokens: 8192,
+  },
+  {
+    id: "claude-3-7-sonnet-20250219",
+    name: "Claude 3.7 Sonnet",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 200000,
+    maxTokens: 8192,
+  },
+  {
+    id: "claude-3-5-sonnet-20241022",
+    name: "Claude 3.5 Sonnet",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 200000,
+    maxTokens: 8192,
+  },
+  {
+    id: "claude-3-5-haiku-20241022",
+    name: "Claude 3.5 Haiku",
+    reasoning: false,
+    input: ["text", "image"],
+    cost: AZURE_FOUNDRY_DEFAULT_COST,
+    contextWindow: 200000,
+    maxTokens: 8192,
+  },
+];
+
+interface AzureFoundryEndpoints {
+  openai?: string;
+  anthropic?: string;
+}
+
+function resolveAzureFoundryEndpoints(env: NodeJS.ProcessEnv = process.env): AzureFoundryEndpoints {
   return {
-    baseUrl: QIANFAN_BASE_URL,
+    openai: env.AZURE_FOUNDRY_OPENAI_ENDPOINT?.trim() || undefined,
+    anthropic: env.AZURE_FOUNDRY_ANTHROPIC_ENDPOINT?.trim() || undefined,
+  };
+}
+
+function buildAzureFoundryOpenaiProvider(endpoint: string): ProviderConfig {
+  return {
+    baseUrl: endpoint,
     api: "openai-completions",
-    models: [
-      {
-        id: QIANFAN_DEFAULT_MODEL_ID,
-        name: "DEEPSEEK V3.2",
-        reasoning: true,
-        input: ["text"],
-        cost: QIANFAN_DEFAULT_COST,
-        contextWindow: QIANFAN_DEFAULT_CONTEXT_WINDOW,
-        maxTokens: QIANFAN_DEFAULT_MAX_TOKENS,
-      },
-      {
-        id: "ernie-5.0-thinking-preview",
-        name: "ERNIE-5.0-Thinking-Preview",
-        reasoning: true,
-        input: ["text", "image"],
-        cost: QIANFAN_DEFAULT_COST,
-        contextWindow: 119000,
-        maxTokens: 64000,
-      },
-    ],
+    models: AZURE_FOUNDRY_OPENAI_CATALOG,
+  };
+}
+
+function buildAzureFoundryAnthropicProvider(endpoint: string): ProviderConfig {
+  return {
+    baseUrl: endpoint,
+    api: "anthropic-messages",
+    models: AZURE_FOUNDRY_ANTHROPIC_CATALOG,
   };
 }
 
@@ -500,34 +680,6 @@ export async function resolveImplicitProviders(params: {
     providers.xiaomi = { ...buildXiaomiProvider(), apiKey: xiaomiKey };
   }
 
-  const cloudflareProfiles = listProfilesForProvider(authStore, "cloudflare-ai-gateway");
-  for (const profileId of cloudflareProfiles) {
-    const cred = authStore.profiles[profileId];
-    if (cred?.type !== "api_key") {
-      continue;
-    }
-    const accountId = cred.metadata?.accountId?.trim();
-    const gatewayId = cred.metadata?.gatewayId?.trim();
-    if (!accountId || !gatewayId) {
-      continue;
-    }
-    const baseUrl = resolveCloudflareAiGatewayBaseUrl({ accountId, gatewayId });
-    if (!baseUrl) {
-      continue;
-    }
-    const apiKey = resolveEnvApiKeyVarName("cloudflare-ai-gateway") ?? cred.key?.trim() ?? "";
-    if (!apiKey) {
-      continue;
-    }
-    providers["cloudflare-ai-gateway"] = {
-      baseUrl,
-      api: "anthropic-messages",
-      apiKey,
-      models: [buildCloudflareAiGatewayModelDefinition()],
-    };
-    break;
-  }
-
   // Ollama provider - only add if explicitly configured
   const ollamaKey =
     resolveEnvApiKeyVarName("ollama") ??
@@ -536,11 +688,24 @@ export async function resolveImplicitProviders(params: {
     providers.ollama = { ...(await buildOllamaProvider()), apiKey: ollamaKey };
   }
 
-  const qianfanKey =
-    resolveEnvApiKeyVarName("qianfan") ??
-    resolveApiKeyFromProfiles({ provider: "qianfan", store: authStore });
-  if (qianfanKey) {
-    providers.qianfan = { ...buildQianfanProvider(), apiKey: qianfanKey };
+  // Azure AI Foundry - auto-discover from AZURE_FOUNDRY_*_ENDPOINT env vars
+  const azureFoundryKey =
+    resolveEnvApiKeyVarName("azure-ai-foundry") ??
+    resolveApiKeyFromProfiles({ provider: "azure-ai-foundry", store: authStore });
+  if (azureFoundryKey) {
+    const endpoints = resolveAzureFoundryEndpoints();
+    if (endpoints.openai) {
+      providers["azure-ai-foundry"] = {
+        ...buildAzureFoundryOpenaiProvider(endpoints.openai),
+        apiKey: azureFoundryKey,
+      };
+    }
+    if (endpoints.anthropic) {
+      providers["azure-ai-foundry-anthropic"] = {
+        ...buildAzureFoundryAnthropicProvider(endpoints.anthropic),
+        apiKey: azureFoundryKey,
+      };
+    }
   }
 
   return providers;

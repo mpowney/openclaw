@@ -1,9 +1,10 @@
 ---
-summary: "Web search + fetch tools (Brave Search API, Perplexity direct/OpenRouter)"
+summary: "Web search + fetch tools (Brave Search API, Perplexity direct/OpenRouter, SearXNG)"
 read_when:
   - You want to enable web_search or web_fetch
   - You need Brave Search API key setup
   - You want to use Perplexity Sonar for web search
+  - You want to use SearXNG (self-hosted, no API key)
 title: "Web Tools"
 ---
 
@@ -11,7 +12,7 @@ title: "Web Tools"
 
 OpenClaw ships two lightweight web tools:
 
-- `web_search` — Search the web via Brave Search API (default) or Perplexity Sonar (direct or via OpenRouter).
+- `web_search` — Search the web via Brave Search API (default), Perplexity Sonar, or SearXNG (self-hosted).
 - `web_fetch` — HTTP fetch + readable extraction (HTML → markdown/text).
 
 These are **not** browser automation. For JS-heavy sites or logins, use the
@@ -22,6 +23,7 @@ These are **not** browser automation. For JS-heavy sites or logins, use the
 - `web_search` calls your configured provider and returns results.
   - **Brave** (default): returns structured results (title, URL, snippet).
   - **Perplexity**: returns AI-synthesized answers with citations from real-time web search.
+  - **SearXNG**: self-hosted meta search engine, aggregates results from multiple search engines (no API key required).
 - Results are cached by query for 15 minutes (configurable).
 - `web_fetch` does a plain HTTP GET and extracts readable content
   (HTML → markdown/text). It does **not** execute JavaScript.
@@ -33,8 +35,9 @@ These are **not** browser automation. For JS-heavy sites or logins, use the
 | ------------------- | -------------------------------------------- | ---------------------------------------- | -------------------------------------------- |
 | **Brave** (default) | Fast, structured results, free tier          | Traditional search results               | `BRAVE_API_KEY`                              |
 | **Perplexity**      | AI-synthesized answers, citations, real-time | Requires Perplexity or OpenRouter access | `OPENROUTER_API_KEY` or `PERPLEXITY_API_KEY` |
+| **SearXNG**         | Self-hosted, unlimited, no API key, privacy  | Requires running your own instance       | None (just `baseUrl`)                        |
 
-See [Brave Search setup](/brave-search) and [Perplexity Sonar](/perplexity) for provider-specific details.
+See [Brave Search setup](/brave-search), [Perplexity Sonar](/perplexity), and [SearXNG setup](#using-searxng-self-hosted) for provider-specific details.
 
 Set the provider in config:
 
@@ -43,7 +46,7 @@ Set the provider in config:
   tools: {
     web: {
       search: {
-        provider: "brave", // or "perplexity"
+        provider: "brave", // or "perplexity" or "searxng"
       },
     },
   },
@@ -71,7 +74,7 @@ Example: switch to Perplexity Sonar (direct API):
 
 ## Getting a Brave API key
 
-1. Create a Brave Search API account at [https://brave.com/search/api/](https://brave.com/search/api/)
+1. Create a Brave Search API account at https://brave.com/search/api/
 2. In the dashboard, choose the **Data for Search** plan (not “Data for AI”) and generate an API key.
 3. Run `openclaw configure --section web` to store the key in config (recommended), or set `BRAVE_API_KEY` in your environment.
 
@@ -95,7 +98,7 @@ crypto/prepaid).
 
 ### Getting an OpenRouter API key
 
-1. Create an account at [https://openrouter.ai/](https://openrouter.ai/)
+1. Create an account at https://openrouter.ai/
 2. Add credits (supports crypto, prepaid, or credit card)
 3. Generate an API key in your account settings
 
@@ -139,6 +142,80 @@ If no base URL is set, OpenClaw chooses a default based on the API key source:
 | `perplexity/sonar-pro` (default) | Multi-step reasoning with web search | Complex questions |
 | `perplexity/sonar-reasoning-pro` | Chain-of-thought analysis            | Deep research     |
 
+## Using SearXNG (self-hosted)
+
+[SearXNG](https://github.com/searxng/searxng) is a free, open-source metasearch engine that aggregates
+results from multiple search engines (Google, Bing, DuckDuckGo, etc.) without tracking. It requires
+no API key — just a running instance.
+
+### Quick setup with Docker
+
+```bash
+# Create a directory for SearXNG
+mkdir -p ~/searxng/searxng
+
+# Create settings.yml to enable JSON API
+cat > ~/searxng/searxng/settings.yml << 'EOF'
+use_default_settings: true
+
+search:
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "change-this-to-a-random-string"
+  limiter: false
+  image_proxy: true
+EOF
+
+# Create docker-compose.yml
+cat > ~/searxng/docker-compose.yml << 'EOF'
+version: '3.7'
+
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    ports:
+      - "8888:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888/
+    restart: unless-stopped
+EOF
+
+# Start SearXNG
+cd ~/searxng && docker-compose up -d
+```
+
+### Config example
+
+```json5
+{
+  tools: {
+    web: {
+      search: {
+        provider: "searxng",
+        searxng: {
+          baseUrl: "http://localhost:8888",
+        },
+      },
+    },
+  },
+}
+```
+
+**Environment alternative:** set `SEARXNG_BASE_URL` in the Gateway environment instead of config.
+
+### Why SearXNG?
+
+- **No API key required** — unlimited searches
+- **Privacy-focused** — no tracking, self-hosted
+- **Aggregates multiple engines** — Google, Bing, DuckDuckGo, and more
+- **Free forever** — no rate limits or costs
+
 ## web_search
 
 Search the web using your configured provider.
@@ -149,6 +226,7 @@ Search the web using your configured provider.
 - API key for your chosen provider:
   - **Brave**: `BRAVE_API_KEY` or `tools.web.search.apiKey`
   - **Perplexity**: `OPENROUTER_API_KEY`, `PERPLEXITY_API_KEY`, or `tools.web.search.perplexity.apiKey`
+  - **SearXNG**: No API key required — just set `tools.web.search.searxng.baseUrl` or `SEARXNG_BASE_URL`
 
 ### Config
 
@@ -207,12 +285,12 @@ await web_search({
 
 Fetch a URL and extract readable content.
 
-### web_fetch requirements
+### Requirements
 
 - `tools.web.fetch.enabled` must not be `false` (default: enabled)
 - Optional Firecrawl fallback: set `tools.web.fetch.firecrawl.apiKey` or `FIRECRAWL_API_KEY`.
 
-### web_fetch config
+### Config
 
 ```json5
 {
@@ -221,7 +299,6 @@ Fetch a URL and extract readable content.
       fetch: {
         enabled: true,
         maxChars: 50000,
-        maxCharsCap: 50000,
         timeoutSeconds: 30,
         cacheTtlMinutes: 15,
         maxRedirects: 3,
@@ -241,7 +318,7 @@ Fetch a URL and extract readable content.
 }
 ```
 
-### web_fetch tool parameters
+### Tool parameters
 
 - `url` (required, http/https only)
 - `extractMode` (`markdown` | `text`)
@@ -253,7 +330,6 @@ Notes:
 - Firecrawl requests use bot-circumvention mode and cache results by default.
 - `web_fetch` sends a Chrome-like User-Agent and `Accept-Language` by default; override `userAgent` if needed.
 - `web_fetch` blocks private/internal hostnames and re-checks redirects (limit with `maxRedirects`).
-- `maxChars` is clamped to `tools.web.fetch.maxCharsCap`.
 - `web_fetch` is best-effort extraction; some sites will need the browser tool.
 - See [Firecrawl](/tools/firecrawl) for key setup and service details.
 - Responses are cached (default 15 minutes) to reduce repeated fetches.
